@@ -1,0 +1,1031 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Outer Skin Tool</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: left control column (file, settings, run, result), right 3D viewport that fills the rest. Stacks on narrow screens. */
+:root {
+  --bg: #eef1f4; --panel: #ffffff; --ink: #18202b; --muted: #5d6878; --line: #d5dbe3;
+  --accent: #1f5fbf; --accent-ink: #ffffff; --kept: #6f9fdc; --kept-before: #b8bfca; --removed: #d8463a;
+  --ok: #1d7a46; --warn: #a15c00; --err: #b3261e; --view: #e4e8ee; --cover: #db8c29;
+  --sans: "IBM Plex Sans", "Segoe UI", system-ui, sans-serif; --mono: "IBM Plex Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #12161c; --panel: #1a2029; --ink: #e5e9ef; --muted: #98a3b3; --line: #2e3744;
+  --accent: #6b9cf0; --accent-ink: #0d1420; --kept: #6f9fdc; --kept-before: #a9b0bb; --removed: #e25b4f;
+  --ok: #5cc28a; --warn: #e0a14a; --err: #f07a70; --view: #161b22; color-scheme: dark } }
+:root[data-theme="dark"] {
+  --bg: #12161c; --panel: #1a2029; --ink: #e5e9ef; --muted: #98a3b3; --line: #2e3744;
+  --accent: #6b9cf0; --accent-ink: #0d1420; --kept: #6f9fdc; --kept-before: #a9b0bb; --removed: #e25b4f;
+  --ok: #5cc28a; --warn: #e0a14a; --err: #f07a70; --view: #161b22; color-scheme: dark }
+* { box-sizing: border-box }
+[hidden] { display: none !important }
+html, body { height: 100%; margin: 0 }
+body { background: var(--bg); color: var(--ink); font: 14px/1.45 var(--sans); }
+.app { display: grid; grid-template-columns: 360px 1fr; height: 100%; }
+.side { background: var(--panel); border-right: 1px solid var(--line); overflow-y: auto;
+  padding-block: 20px; padding-left: max(18px, env(safe-area-inset-left, 0px)); padding-right: 18px;
+  display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+h1 { font-size: 18px; font-weight: 600; margin: 0; letter-spacing: -0.01em }
+.sub { color: var(--muted); margin: 4px 0 0; font-size: 13px; text-wrap: pretty }
+.label { font: 500 11px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px }
+.drop { border: 1.5px dashed var(--line); border-radius: 8px; padding: 18px 14px; text-align: center; cursor: pointer; transition: border-color .15s, background .15s }
+.drop:hover, .drop.over { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, transparent) }
+.drop:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.drop b { font-weight: 600 }
+.drop .hint { color: var(--muted); font-size: 12px; margin-top: 4px }
+.file { font: 13px var(--mono); word-break: break-all; margin-top: 8px; color: var(--ink) }
+.field { display: grid; grid-template-columns: 1fr auto; gap: 6px 10px; align-items: center }
+.field .help { grid-column: 1 / -1; color: var(--muted); font-size: 12px; margin: 0 }
+select, button { font: inherit; color: inherit }
+select { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px }
+.btn { border: 0; border-radius: 7px; padding: 10px 14px; font-weight: 600; cursor: pointer; background: var(--accent); color: var(--accent-ink); width: 100% }
+.btn:disabled { opacity: .45; cursor: not-allowed }
+.btn.secondary { background: transparent; color: var(--accent); border: 1px solid var(--accent) }
+.btn:focus-visible, select:focus-visible, .seg button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px }
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 13px }
+.steps li { display: grid; grid-template-columns: 16px 1fr; column-gap: 8px; align-items: baseline; color: var(--muted) }
+.steps li .t:not(:empty) { grid-column: 2 }
+.steps li::before { content: ""; width: 9px; height: 9px; border-radius: 50%; border: 1.5px solid var(--line); align-self: center }
+.steps li.run { color: var(--ink) } .steps li.run::before { border-color: var(--accent); background: var(--accent); animation: pulse 1s infinite alternate }
+.steps li.done { color: var(--ink) } .steps li.done::before { border-color: var(--ok); background: var(--ok) }
+.steps li.fail { color: var(--err) } .steps li.fail::before { border-color: var(--err); background: var(--err) }
+.steps .t { font: 12px var(--mono); color: var(--muted); font-variant-numeric: tabular-nums }
+@keyframes pulse { to { opacity: .35 } }
+@media (prefers-reduced-motion: reduce) { .steps li.run::before { animation: none } }
+.detail { font: 12px var(--mono); color: var(--muted); min-height: 1.4em; word-break: break-word }
+.stats { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 12px; font-size: 13px; font-variant-numeric: tabular-nums }
+.stats .h { font: 500 11px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--muted) }
+.stats .n { text-align: right; font-family: var(--mono) }
+.note { font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); padding-top: 12px; margin-top: auto }
+.err { color: var(--err); font-size: 13px; white-space: pre-wrap }
+.view { position: relative; background: var(--view); min-width: 0; min-height: 0 }
+.view canvas { display: block; width: 100%; height: 100% }
+.toolbar { position: absolute; top: 12px; left: 12px; right: max(12px, env(safe-area-inset-right, 0px)); display: flex; flex-wrap: wrap; gap: 10px; align-items: center; pointer-events: none }
+.toolbar > * { pointer-events: auto }
+.seg { display: flex; background: var(--panel); border: 1px solid var(--line); border-radius: 7px; overflow: hidden }
+.seg button { border: 0; background: transparent; padding: 6px 11px; cursor: pointer; font-size: 13px }
+.seg button.on { background: var(--accent); color: var(--accent-ink) }
+.cut { display: flex; gap: 8px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 4px 10px; font-size: 13px }
+.cut input[type=range] { width: 140px }
+.legend { position: absolute; left: 12px; bottom: 12px; display: flex; gap: 14px; font-size: 12px; color: var(--muted); background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px }
+.sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 5px; vertical-align: -1px }
+.dim { opacity: .55 } .dim.ready { opacity: 1 }
+.opt { text-transform: none; letter-spacing: 0; font-family: var(--sans); font-weight: 400 }
+.help { color: var(--muted); font-size: 12px }
+.row2 { display: flex; gap: 8px }
+.btn.ghost { background: transparent; color: var(--muted); border: 1px solid var(--line); width: auto }
+.check { display: flex; gap: 8px; align-items: center; font-size: 13px; margin-top: 10px }
+.covers { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px }
+.covers li { display: grid; grid-template-columns: 12px 1fr auto; gap: 8px; align-items: center; font-size: 13px; padding: 4px 0; border-bottom: 1px solid var(--line) }
+.covers li i { width: 10px; height: 10px; border-radius: 2px; background: var(--cover) }
+.covers li small { color: var(--muted); font: 12px var(--mono) }
+.covers button { border: 0; background: transparent; color: var(--err); cursor: pointer; font-size: 12px; padding: 2px 4px }
+.view.drawing canvas { cursor: crosshair }
+.stale { color: var(--warn); font-size: 12px; margin-top: 8px }
+.empty { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); text-align: center; padding: 24px; pointer-events: none }
+.empty p { max-width: 34ch; margin: 0 }
+@media (max-width: 760px) {
+  .app { grid-template-columns: 1fr; grid-template-rows: auto 70vh; height: auto }
+  .side { border-right: 0; border-bottom: 1px solid var(--line); padding-right: max(16px, env(safe-area-inset-right, 0px)) }
+}
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div>
+      <h1>Outer Skin Tool</h1>
+      <p class="sub">Keeps only the faces of a STEP model that can be seen from outside. Contact faces, hidden parts and internal cavities are removed. Part names, colours and the assembly tree are kept.</p>
+    </div>
+
+    <div>
+      <div class="label">STEP file</div>
+      <label class="drop" id="drop" tabindex="0">
+        <input type="file" id="file" accept=".step,.stp,.STEP,.STP" hidden>
+        <div><b>Choose a STEP file</b> or drop it here</div>
+        <div class="hint">.step / .stp · stays on this computer</div>
+        <div class="file" id="fileName"></div>
+      </label>
+    </div>
+
+    <div id="coverSec" class="dim">
+      <div class="label">Covers <span class="opt">optional</span></div>
+      <p class="help" style="margin:0 0 10px">Close off openings so everything behind them counts as hidden and is removed. Click <b>Draw cover</b>, then click points around the edge of an opening on the model. Use the section cut to reach openings inside. Double-click or press Enter to finish.</p>
+      <div class="row2">
+        <button class="btn secondary" id="draw" disabled>Draw cover</button>
+        <button class="btn ghost" id="cancelDraw" hidden>Cancel</button>
+      </div>
+      <div class="detail" id="drawHint"></div>
+      <ul class="covers" id="coverList"></ul>
+      <label class="check"><input type="checkbox" id="addCovers" checked> Add covers to the STEP file as plates</label>
+      <p class="help" style="margin:4px 0 0">Without plates the opening stays open and shows an empty inside.</p>
+    </div>
+
+    <div>
+      <div class="label">Settings</div>
+      <div class="field">
+        <label for="gap">Close gaps narrower than</label>
+        <select id="gap">
+          <option value="0">Off</option>
+          <option value="2">2 mm</option>
+          <option value="4" selected>4 mm</option>
+          <option value="6">6 mm</option>
+          <option value="10">10 mm</option>
+        </select>
+        <p class="help">Faces you can only see through a gap narrower than this are removed too. Off keeps everything with a line of sight to the outside.</p>
+      </div>
+      <div class="field" style="margin-top:10px">
+        <label for="quality">Accuracy</label>
+        <select id="quality">
+          <option value="fast">Fast</option>
+          <option value="normal" selected>Normal</option>
+          <option value="high">High</option>
+        </select>
+      </div>
+    </div>
+
+    <button class="btn" id="run" disabled>Create outer skin</button>
+
+    <div id="progress" hidden>
+      <div class="label">Progress</div>
+      <ul class="steps" id="steps"></ul>
+      <div class="detail" id="detail"></div>
+      <div class="err" id="error" hidden></div>
+    </div>
+
+    <div id="result" hidden>
+      <div class="label">Result</div>
+      <div class="stats" id="stats"></div>
+      <div class="stale" id="stale" hidden>Covers changed since this result. Run again to use them.</div>
+      <div style="margin-top:12px"><button class="btn" id="download">Download STEP</button></div>
+    </div>
+
+    <p class="note">Runs entirely in this browser: the file is never uploaded. The first run downloads the OpenCascade CAD engine (about 48 MB), and your browser caches it after that. The output faces are open surfaces, so volume and mass won't work in CAD.</p>
+  </aside>
+
+  <main class="view" id="view">
+    <canvas id="gl"></canvas>
+    <div class="empty" id="empty"><p>Open a STEP file. The model appears here, ready for drawing covers and for the before and after comparison.</p></div>
+    <div class="toolbar" id="toolbar" hidden>
+      <div class="seg" id="mode" hidden>
+        <button data-m="before">Before</button><button data-m="after" class="on">After</button><button data-m="removed">Removed</button>
+      </div>
+      <div class="cut">
+        <label for="axis">Section</label>
+        <select id="axis"><option value="0">X</option><option value="1" selected>Y</option><option value="2">Z</option></select>
+        <input type="range" id="cutPos" min="0" max="1000" value="1000" aria-label="Section position">
+        <label><input type="checkbox" id="flip" checked> flip</label>
+      </div>
+      <label class="cut"><input type="checkbox" id="showCovers" checked> covers</label>
+    </div>
+    <div class="legend" id="legend" hidden>
+      <span class="after-only"><i class="sw" style="background:var(--kept)"></i>kept</span>
+      <span><i class="sw" style="background:var(--kept-before)"></i><span id="lgModel">model</span></span>
+      <span class="after-only"><i class="sw" style="background:var(--removed)"></i>removed</span>
+      <span><i class="sw" style="background:var(--cover)"></i>cover</span>
+    </div>
+  </main>
+</div>
+
+<!-- ============================ Worker: CAD engine + analysis ============================ -->
+<script type="text/plain" id="worker-src">
+const OC_BASE = "https://cdn.jsdelivr.net/npm/opencascade.js@2.0.0-beta.b5ff984/dist/";
+let oc = null;
+const post = (m, transfer) => self.postMessage(m, transfer || []);
+const step = (id, state, extra) => post({ type: "step", id, state, ...extra });
+const detail = text => post({ type: "detail", text });
+const tick = () => new Promise(r => setTimeout(r, 0));
+
+async function loadEngine() {
+  if (oc) return;
+  // Classic worker (module workers are refused on pages opened from disk): fetch the ES module,
+  // turn its final `export default` into a global, and load it with importScripts.
+  const r = await fetch(OC_BASE + "opencascade.full.js");
+  if (!r.ok) throw new Error(`Could not download the CAD engine (HTTP ${r.status}). Check the internet connection.`);
+  const code = (await r.text()).replace(/export\s+default\s+Module;?\s*$/, "self.__ocFactory = Module;");
+  const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+  importScripts(url); URL.revokeObjectURL(url);
+  oc = await new self.__ocFactory({ locateFile: p => p.endsWith(".wasm") ? OC_BASE + "opencascade.full.wasm" : p });
+}
+
+// ---------- helpers around the OpenCascade bindings ----------
+const E = () => ({
+  FACE: oc.TopAbs_ShapeEnum.TopAbs_FACE, SOLID: oc.TopAbs_ShapeEnum.TopAbs_SOLID, SHAPE: oc.TopAbs_ShapeEnum.TopAbs_SHAPE,
+  SURF: oc.XCAFDoc_ColorType.XCAFDoc_ColorSurf, GEN: oc.XCAFDoc_ColorType.XCAFDoc_ColorGen,
+  NONE: oc.Poly_MeshPurpose?.Poly_MeshPurpose_NONE ?? 0,   // plain integer in this build
+});
+function explore(shape, what, avoid) {
+  const out = [], ex = new oc.TopExp_Explorer_2(shape, what, avoid);
+  for (; ex.More(); ex.Next()) out.push(ex.Current());
+  ex.delete(); return out;
+}
+function seq(fn) { const s = new oc.TDF_LabelSequence_1(); fn(s); const a = []; for (let i = 1; i <= s.Length(); i++) a.push(s.Value(i)); return a; }
+function nameOf(L) { try { return oc.RWMesh.ReadNameAttribute(L).ToCString(); } catch (e) { return ""; } }
+function colourOf(ct, L, e) {
+  for (const t of [e.SURF, e.GEN]) { const c = new oc.Quantity_Color_1(); if (ct.GetColor_4(L, t, c)) return { c, t }; c.delete(); }
+  return null;
+}
+
+// ---------- 1. read STEP into an XCAF document ----------
+function readStep(bytes) {
+  oc.FS.writeFile("/in.step", bytes);
+  const reader = new oc.STEPCAFControl_Reader_1();
+  reader.SetColorMode(true); reader.SetNameMode(true); reader.SetLayerMode(true);
+  if (reader.ReadFile("/in.step") !== oc.IFSelect_ReturnStatus.IFSelect_RetDone) throw new Error("This file could not be read as STEP.");
+  const doc = new oc.Handle_TDocStd_Document_2(new oc.TDocStd_Document(new oc.TCollection_ExtendedString_1()));
+  if (!reader.Transfer_1(doc, new oc.Message_ProgressRange_1())) throw new Error("The STEP file was read but its shapes could not be converted.");
+  oc.FS.unlink("/in.step");
+  return doc;
+}
+
+// ---------- 2. walk the assembly tree, collect part instances ----------
+function collect(doc) {
+  const st = oc.XCAFDoc_DocumentTool.ShapeTool(doc.get().Main()).get();
+  const instances = [];      // {label, loc}
+  function walk(L, loc) {
+    if (oc.XCAFDoc_ShapeTool.IsAssembly(L)) {
+      for (const c of seq(s => oc.XCAFDoc_ShapeTool.GetComponents(L, s, false))) {
+        const ref = new oc.TDF_Label(); oc.XCAFDoc_ShapeTool.GetReferredShape(c, ref);
+        walk(ref, loc.Multiplied(oc.XCAFDoc_ShapeTool.GetLocation(c)));
+      }
+    } else instances.push({ label: L, loc });
+  }
+  const roots = seq(s => st.GetFreeShapes(s));
+  for (const L of roots) walk(L, new oc.TopLoc_Location_1());
+  return { st, roots, instances };
+}
+
+// ---------- 3. mesh and flatten into typed arrays ----------
+function meshAll(ctx, e, lin) {
+  for (const L of ctx.roots) { const s = oc.XCAFDoc_ShapeTool.GetShape_2(L); new oc.BRepMesh_IncrementalMesh_2(s, lin, false, 0.3, false); }
+  const faces = [];          // {inst, face (prototype), group}
+  const pos = [], idx = [], triFace = [];
+  let group = 0, nv = 0;
+  ctx.groups = [];           // group -> closed solid?
+  ctx.instances.forEach((inst, ii) => {
+    const shape = oc.XCAFDoc_ShapeTool.GetShape_2(inst.label);
+    const parts = explore(shape, e.SOLID, e.SHAPE).map(s => ({ s, closed: true }));
+    const loose = explore(shape, e.FACE, e.SOLID);
+    if (loose.length) parts.push({ s: null, faces: loose, closed: false });
+    inst.parts = [];
+    for (const p of parts) {
+      const fl = p.faces || explore(p.s, e.FACE, e.SHAPE);
+      const g = group++; ctx.groups.push(p.closed);
+      inst.parts.push({ solid: p.s, faces: [] });
+      for (const fsh of fl) {
+        const f = oc.TopoDS.Face_1(fsh);
+        const fi = faces.length; faces.push({ inst: ii, face: f, group: g, solid: p.s });
+        inst.parts[inst.parts.length - 1].faces.push(fi);
+        const moved = oc.TopoDS.Face_1(f.Moved(inst.loc, false));
+        const tl = new oc.TopLoc_Location_1();
+        const th = oc.BRep_Tool.Triangulation(moved, tl, e.NONE);
+        if (th.IsNull()) continue;
+        const tri = th.get(), tr = tl.Transformation();
+        const m = []; for (let r = 1; r <= 3; r++) for (let c = 1; c <= 4; c++) m.push(tr.Value(r, c));
+        const n = tri.NbNodes();
+        for (let i = 1; i <= n; i++) {
+          const p = tri.Node(i), x = p.X(), y = p.Y(), z = p.Z(); p.delete();
+          pos.push(m[0]*x + m[1]*y + m[2]*z + m[3], m[4]*x + m[5]*y + m[6]*z + m[7], m[8]*x + m[9]*y + m[10]*z + m[11]);
+        }
+        for (let i = 1, nt = tri.NbTriangles(); i <= nt; i++) {
+          const t = tri.Triangle(i);
+          idx.push(nv + t.Value(1) - 1, nv + t.Value(2) - 1, nv + t.Value(3) - 1); triFace.push(fi); t.delete();
+        }
+        nv += n; tl.delete();
+      }
+    }
+    if (ii % 10 === 0) detail(`Meshed ${ii + 1} of ${ctx.instances.length} parts`);
+  });
+  return { faces, pos: new Float32Array(pos), idx: new Uint32Array(idx), triFace: new Int32Array(triFace) };
+}
+
+// ---------- geometry utilities ----------
+function bounds(pos) {
+  const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < pos.length; i += 3) for (let k = 0; k < 3; k++) { const v = pos[i + k]; if (v < lo[k]) lo[k] = v; if (v > hi[k]) hi[k] = v; }
+  return { lo, hi };
+}
+function fib(n) {
+  const d = new Float32Array(n * 3), g = Math.PI * (1 + Math.sqrt(5));
+  for (let i = 0; i < n; i++) { const phi = Math.acos(1 - 2 * (i + 0.5) / n), th = g * (i + 0.5);
+    d[i*3] = Math.cos(th) * Math.sin(phi); d[i*3+1] = Math.sin(th) * Math.sin(phi); d[i*3+2] = Math.cos(phi); }
+  return d;
+}
+
+// ---------- 4. GPU face-ID rendering from many outside directions ----------
+function rotDirs(D, seed) {   // rotate a direction set so test views differ from analysis views
+  const a = seed * 2.399, b = seed * 1.117, ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b), out = new Float32Array(D.length);
+  for (let i = 0; i < D.length; i += 3) { const x = D[i], y = D[i+1], z = D[i+2], x1 = ca*x - sa*y, y1 = sa*x + ca*y;
+    out[i] = x1; out[i+1] = cb*y1 - sb*z; out[i+2] = sb*y1 + cb*z; }
+  return out;
+}
+function gpuVisible(M, nFaces, views, res, testKeep, testSeed) {
+  const cv = new OffscreenCanvas(res, res);
+  const gl = cv.getContext("webgl2", { antialias: false, preserveDrawingBuffer: false });
+  if (!gl) throw new Error("WebGL2 is not available in this browser, which the tool needs.");
+  const vs = `#version 300 es
+    in vec3 p; in uint id; uniform vec3 u, v, w; uniform float R; flat out uint fid;
+    void main(){ fid = id; gl_Position = vec4(dot(p,u)/R, dot(p,v)/R, -dot(p,w)/R, 1.0); }`;
+  const fs = `#version 300 es
+    precision highp float; flat in uint fid; out vec4 o;
+    void main(){ uint k = fid + 1u; o = vec4(float(k & 255u), float((k >> 8) & 255u), float((k >> 16) & 255u), 255.0) / 255.0; }`;
+  const sh = (t, s) => { const x = gl.createShader(t); gl.shaderSource(x, s); gl.compileShader(x); if (!gl.getShaderParameter(x, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(x)); return x; };
+  const pr = gl.createProgram(); gl.attachShader(pr, sh(gl.VERTEX_SHADER, vs)); gl.attachShader(pr, sh(gl.FRAGMENT_SHADER, fs)); gl.linkProgram(pr); gl.useProgram(pr);
+  // non-indexed so each vertex carries its face id; cover triangles get an id past the last face (they only block sight)
+  const nm = M.idx.length / 3, no = M.occIdx ? M.occIdx.length / 3 : 0, nt = nm + no;
+  const P = new Float32Array(nt * 9), I = new Uint32Array(nt * 3);
+  for (let t = 0; t < nm; t++) for (let k = 0; k < 3; k++) { const vi = M.idx[t*3+k]; P[t*9+k*3] = M.cpos[vi*3]; P[t*9+k*3+1] = M.cpos[vi*3+1]; P[t*9+k*3+2] = M.cpos[vi*3+2]; I[t*3+k] = M.triFace[t]; }
+  for (let t = 0; t < no; t++) for (let k = 0; k < 3; k++) { const vi = M.occIdx[t*3+k], o = (nm + t) * 9 + k * 3; P[o] = M.occPos[vi*3]; P[o+1] = M.occPos[vi*3+1]; P[o+2] = M.occPos[vi*3+2]; I[(nm + t)*3+k] = nFaces; }
+  const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+  const b1 = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b1); gl.bufferData(gl.ARRAY_BUFFER, P, gl.STATIC_DRAW);
+  const lp = gl.getAttribLocation(pr, "p"); gl.enableVertexAttribArray(lp); gl.vertexAttribPointer(lp, 3, gl.FLOAT, false, 0, 0);
+  const b2 = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, b2); gl.bufferData(gl.ARRAY_BUFFER, I, gl.STATIC_DRAW);
+  const li = gl.getAttribLocation(pr, "id"); gl.enableVertexAttribArray(li); gl.vertexAttribIPointer(li, 1, gl.UNSIGNED_INT, 0, 0);
+  // render into an RGBA8 framebuffer with depth
+  const fb = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
+  const tex = gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER, tex); gl.renderbufferStorage(gl.RENDERBUFFER, gl.RGBA8, res, res);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, tex);
+  const dep = gl.createRenderbuffer(); gl.bindRenderbuffer(gl.RENDERBUFFER, dep); gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH_COMPONENT24, res, res);
+  gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.DEPTH_ATTACHMENT, gl.RENDERBUFFER, dep);
+  gl.viewport(0, 0, res, res); gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LESS); gl.disable(gl.CULL_FACE);
+  gl.uniform1f(gl.getUniformLocation(pr, "R"), M.radius * 1.01);
+  const U = gl.getUniformLocation(pr, "u"), V = gl.getUniformLocation(pr, "v"), W = gl.getUniformLocation(pr, "w");
+  const seen = new Uint8Array(nFaces), px = new Uint8Array(res * res * 4), px32 = new Uint32Array(px.buffer);
+  const dirs = testKeep ? rotDirs(fib(views), testSeed) : fib(views);
+  let model = 0, bad = 0, gapPx = 0;
+  for (let k = 0; k < views; k++) {
+    const w = [dirs[k*3], dirs[k*3+1], dirs[k*3+2]];
+    const up = Math.abs(w[2]) < 0.9 ? [0, 0, 1] : [1, 0, 0];
+    let u = [up[1]*w[2]-up[2]*w[1], up[2]*w[0]-up[0]*w[2], up[0]*w[1]-up[1]*w[0]]; const ul = Math.hypot(...u); u = u.map(x => x / ul);
+    const v = [w[1]*u[2]-w[2]*u[1], w[2]*u[0]-w[0]*u[2], w[0]*u[1]-w[1]*u[0]];
+    gl.uniform3fv(U, u); gl.uniform3fv(V, v); gl.uniform3fv(W, w);
+    gl.clearColor(0, 0, 0, 0); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLES, 0, nt * 3);
+    gl.readPixels(0, 0, res, res, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    // testKeep codes: 1 kept, 2 removed on purpose (only visible through a narrow gap), 0 removed as hidden
+    if (testKeep) { for (let i = 0; i < px32.length; i++) { const c = px32[i] & 0xffffff; if (c && c <= nFaces) { model++; const code = testKeep[c - 1]; if (code === 0) { bad++; seen[c - 1] = 1; } else if (code === 2) gapPx++; } } }
+    else for (let i = 0; i < px32.length; i++) { const c = px32[i] & 0xffffff; if (c && c <= nFaces) seen[c - 1] = 1; }
+    if (k % 8 === 0) detail(`Rendered ${testKeep ? "test " : ""}view ${k + 1} of ${views}`);
+  }
+  gl.getExtension("WEBGL_lose_context")?.loseContext();
+  return testKeep ? { model, bad, gapPx, badFaces: seen } : seen;
+}
+
+// ---------- 5. BVH ray casting for faces the renders could not decide ----------
+function buildBVH(pos, idx) {
+  const nt = idx.length / 3, cen = new Float32Array(nt * 3), tb = new Float32Array(nt * 6);
+  for (let t = 0; t < nt; t++) {
+    let a = idx[t*3]*3, b = idx[t*3+1]*3, c = idx[t*3+2]*3;
+    for (let k = 0; k < 3; k++) { const x = pos[a+k], y = pos[b+k], z = pos[c+k];
+      tb[t*6+k] = Math.min(x, y, z); tb[t*6+3+k] = Math.max(x, y, z); cen[t*3+k] = (x + y + z) / 3; }
+  }
+  const order = new Uint32Array(nt); for (let i = 0; i < nt; i++) order[i] = i;
+  const nodes = []; // [minx,miny,minz,maxx,maxy,maxz,left|start,right|count,leaf]
+  const NB = new Float32Array(nt * 2 * 6), NI = new Int32Array(nt * 2 * 3); let nn = 0;
+  const stack = [[0, nt, -1, 0]];
+  function make(s, e) {
+    const id = nn++; let mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
+    for (let i = s; i < e; i++) { const t = order[i]; for (let k = 0; k < 3; k++) { if (tb[t*6+k] < mn[k]) mn[k] = tb[t*6+k]; if (tb[t*6+3+k] > mx[k]) mx[k] = tb[t*6+3+k]; } }
+    NB.set([...mn, ...mx], id * 6);
+    if (e - s <= 4) { NI[id*3] = s; NI[id*3+1] = e - s; NI[id*3+2] = 1; return id; }
+    let cmn = [Infinity, Infinity, Infinity], cmx = [-Infinity, -Infinity, -Infinity];
+    for (let i = s; i < e; i++) { const t = order[i]; for (let k = 0; k < 3; k++) { const v = cen[t*3+k]; if (v < cmn[k]) cmn[k] = v; if (v > cmx[k]) cmx[k] = v; } }
+    let ax = 0; for (let k = 1; k < 3; k++) if (cmx[k] - cmn[k] > cmx[ax] - cmn[ax]) ax = k;
+    const mid = (cmn[ax] + cmx[ax]) / 2; let i = s, j = e - 1;
+    while (i <= j) { if (cen[order[i]*3+ax] < mid) i++; else { const tmp = order[i]; order[i] = order[j]; order[j] = tmp; j--; } }
+    let m = i; if (m === s || m === e) m = (s + e) >> 1;
+    NI[id*3+2] = 0;
+    const l = make(s, m), r = make(m, e); NI[id*3] = l; NI[id*3+1] = r; return id;
+  }
+  make(0, nt);
+  return { NB, NI, order, pos, idx };
+}
+function anyHit(B, ox, oy, oz, dx, dy, dz, stack) {
+  const { NB, NI, order, pos, idx } = B; const ix = 1 / dx, iy = 1 / dy, iz = 1 / dz;
+  let sp = 0; stack[sp++] = 0;
+  while (sp) {
+    const n = stack[--sp], b = n * 6;
+    let t1 = (NB[b] - ox) * ix, t2 = (NB[b+3] - ox) * ix, tmin = Math.min(t1, t2), tmax = Math.max(t1, t2);
+    t1 = (NB[b+1] - oy) * iy; t2 = (NB[b+4] - oy) * iy; tmin = Math.max(tmin, Math.min(t1, t2)); tmax = Math.min(tmax, Math.max(t1, t2));
+    t1 = (NB[b+2] - oz) * iz; t2 = (NB[b+5] - oz) * iz; tmin = Math.max(tmin, Math.min(t1, t2)); tmax = Math.min(tmax, Math.max(t1, t2));
+    if (tmax < Math.max(tmin, 0)) continue;
+    if (NI[n*3+2]) {
+      for (let i = NI[n*3], e = i + NI[n*3+1]; i < e; i++) {
+        const t = order[i], a = idx[t*3]*3, bb = idx[t*3+1]*3, c = idx[t*3+2]*3;
+        const e1x = pos[bb]-pos[a], e1y = pos[bb+1]-pos[a+1], e1z = pos[bb+2]-pos[a+2];
+        const e2x = pos[c]-pos[a], e2y = pos[c+1]-pos[a+1], e2z = pos[c+2]-pos[a+2];
+        const px = dy*e2z-dz*e2y, py = dz*e2x-dx*e2z, pz = dx*e2y-dy*e2x, det = e1x*px+e1y*py+e1z*pz;
+        if (Math.abs(det) < 1e-12) continue; const inv = 1 / det;
+        const sx = ox-pos[a], sy = oy-pos[a+1], sz = oz-pos[a+2], uu = (sx*px+sy*py+sz*pz) * inv; if (uu < 0 || uu > 1) continue;
+        const qx = sy*e1z-sz*e1y, qy = sz*e1x-sx*e1z, qz = sx*e1y-sy*e1x, vv = (dx*qx+dy*qy+dz*qz) * inv; if (vv < 0 || uu + vv > 1) continue;
+        if ((e2x*qx+e2y*qy+e2z*qz) * inv > 0) return true;
+      }
+    } else { stack[sp++] = NI[n*3]; stack[sp++] = NI[n*3+1]; }
+  }
+  return false;
+}
+function faceTris(M, nFaces) {
+  const start = new Int32Array(nFaces + 1), nt = M.triFace.length;
+  for (let t = 0; t < nt; t++) start[M.triFace[t] + 1]++;
+  for (let i = 0; i < nFaces; i++) start[i + 1] += start[i];
+  const list = new Int32Array(nt), fill = start.slice(0, nFaces);
+  for (let t = 0; t < nt; t++) list[fill[M.triFace[t]]++] = t;
+  return { start, list };
+}
+function samplePoints(M, FT, f, k, rnd) {
+  const s = FT.start[f], e = FT.start[f + 1]; if (e === s) return [];
+  const area = [], P = M.cpos, I = M.idx; let tot = 0;
+  for (let i = s; i < e; i++) { const t = FT.list[i], a = I[t*3]*3, b = I[t*3+1]*3, c = I[t*3+2]*3;
+    const ux = P[b]-P[a], uy = P[b+1]-P[a+1], uz = P[b+2]-P[a+2], vx = P[c]-P[a], vy = P[c+1]-P[a+1], vz = P[c+2]-P[a+2];
+    tot += Math.hypot(uy*vz-uz*vy, uz*vx-ux*vz, ux*vy-uy*vx); area.push(tot); }
+  const out = [];
+  for (let j = 0; j < k; j++) {
+    const r = rnd() * tot; let lo = 0, hi = area.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (area[m] < r) lo = m + 1; else hi = m; }
+    const t = FT.list[s + lo], a = I[t*3]*3, b = I[t*3+1]*3, c = I[t*3+2]*3; let u = rnd(), v = rnd(); if (u + v > 1) { u = 1 - u; v = 1 - v; }
+    out.push([P[a] + u*(P[b]-P[a]) + v*(P[c]-P[a]), P[a+1] + u*(P[b+1]-P[a+1]) + v*(P[c+1]-P[a+1]), P[a+2] + u*(P[b+2]-P[a+2]) + v*(P[c+2]-P[a+2])]);
+  }
+  return out;
+}
+function rayVisible(M, FT, cands, k, ndir, eps, progress) {
+  // occluders = model + covers (rpos/ridx); sample points come from the model triangles only
+  const B = buildBVH(M.rpos || M.cpos, M.ridx || M.idx), stack = new Int32Array(256), D = fib(ndir), res = new Uint8Array(cands.length);
+  let seed = 12345 + cands.length; const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296);
+  const t0 = Date.now();
+  for (let ci = 0; ci < cands.length; ci++) {
+    if (progress) { if (ci % 25 === 0) progress(ci); }
+    else if (ci % 50 === 0) detail(`Ray-checked ${ci + 1} of ${cands.length} faces (${Math.round((Date.now() - t0) / 1000)} s)`);
+    const pts = samplePoints(M, FT, cands[ci], k, rnd);
+    // random rotation per face so directions don't align across faces
+    const a = rnd() * 6.283, b = rnd() * 6.283, ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b);
+    outer: for (let d = 0; d < ndir; d++) {
+      let x = D[d*3], y = D[d*3+1], z = D[d*3+2];
+      const x1 = ca*x - sa*y, y1 = sa*x + ca*y; const y2 = cb*y1 - sb*z, z2 = sb*y1 + cb*z; x = x1; y = y2; z = z2;
+      for (const p of pts) if (!anyHit(B, p[0] + x*eps, p[1] + y*eps, p[2] + z*eps, x, y, z, stack)) { res[ci] = 1; break outer; }
+    }
+  }
+  return res;
+}
+// Spread the ray check over several helper workers (one per CPU core); falls back to this worker.
+async function rayVisibleParallel(M, FT, cands, k, ndir, eps) {
+  const W = Math.max(1, Math.min((self.navigator?.hardwareConcurrency || 4) - 1, 12, Math.ceil(cands.length / 50)));
+  if (W === 1 || typeof Worker === "undefined") return rayVisible(M, FT, cands, k, ndir, eps);
+  const src = [fib, buildBVH, anyHit, samplePoints, rayVisible].map(f => f.toString()).join("\n") + `
+    const detail = () => {};
+    self.onmessage = ev => { const d = ev.data;
+      const M = { cpos: d.cpos, idx: d.idx, rpos: d.rpos, ridx: d.ridx }, FT = { start: d.start, list: d.list };
+      const res = rayVisible(M, FT, d.cands, d.k, d.ndir, d.eps, n => self.postMessage({ n }));
+      self.postMessage({ res }, [res.buffer]); };`;
+  const url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
+  const parts = Array.from({ length: W }, () => []);
+  cands.forEach((f, i) => parts[i % W].push(i));     // interleave so hard faces spread evenly
+  const done = new Array(W).fill(0), t0 = Date.now(), res = new Uint8Array(cands.length);
+  await Promise.all(parts.map((ids, w) => new Promise((resolve, reject) => {
+    const wk = new Worker(url);
+    wk.onerror = e => reject(new Error("A ray-check helper failed: " + (e.message || "unknown error")));
+    wk.onmessage = ev => {
+      if (ev.data.res) { ev.data.res.forEach((v, j) => { res[ids[j]] = v; }); wk.terminate(); resolve(); return; }
+      done[w] = ev.data.n; const tot = done.reduce((a, b) => a + b, 0);
+      detail(`Ray-checked ${tot.toLocaleString()} of ${cands.length.toLocaleString()} faces on ${W} cores (${Math.round((Date.now() - t0) / 1000)} s)`);
+    };
+    wk.postMessage({ cpos: M.cpos, idx: M.idx, rpos: M.rpos, ridx: M.ridx, start: FT.start, list: FT.list, cands: Int32Array.from(ids, i => cands[i]), k, ndir, eps });
+  })));
+  URL.revokeObjectURL(url);
+  return res;
+}
+
+// ---------- 6. voxel gap closing: can a ball of diameter G from outside touch the face? ----------
+function edt1d(f, n, d, v, z) {   // Felzenszwalb squared distance, in place over f[0..n)
+  let k = 0; v[0] = 0; z[0] = -1e20; z[1] = 1e20;
+  for (let q = 1; q < n; q++) {
+    let s; while (true) { const r = v[k]; s = ((f[q] + q*q) - (f[r] + r*r)) / (2*q - 2*r); if (s <= z[k]) { k--; if (k < 0) { k = 0; break; } } else break; }
+    if (k === 0 && s <= z[0]) { v[0] = q; z[0] = -1e20; z[1] = 1e20; continue; }
+    k++; v[k] = q; z[k] = s; z[k+1] = 1e20;
+  }
+  k = 0; for (let q = 0; q < n; q++) { while (z[k+1] < q) k++; const r = v[k]; d[q] = (q - r) * (q - r) + f[r]; }
+  for (let q = 0; q < n; q++) f[q] = d[q];
+}
+function edt3d(F, nx, ny, nz) {   // F holds 0 at feature voxels, big elsewhere; becomes squared voxel distance
+  const m = Math.max(nx, ny, nz), f = new Float64Array(m), d = new Float64Array(m), v = new Int32Array(m), z = new Float64Array(m + 1);
+  const sx = ny * nz, sy = nz;
+  for (let x = 0; x < nx; x++) for (let y = 0; y < ny; y++) { const o = x*sx + y*sy; for (let q = 0; q < nz; q++) f[q] = F[o+q]; edt1d(f, nz, d, v, z); for (let q = 0; q < nz; q++) F[o+q] = f[q]; }
+  for (let x = 0; x < nx; x++) for (let q = 0; q < nz; q++) { const o = x*sx + q; for (let y = 0; y < ny; y++) f[y] = F[o+y*sy]; edt1d(f, ny, d, v, z); for (let y = 0; y < ny; y++) F[o+y*sy] = f[y]; }
+  for (let y = 0; y < ny; y++) for (let q = 0; q < nz; q++) { const o = y*sy + q; for (let x = 0; x < nx; x++) f[x] = F[o+x*sx]; edt1d(f, nx, d, v, z); for (let x = 0; x < nx; x++) F[o+x*sx] = f[x]; }
+}
+function accessible(M, nFaces, faceGroup, groups, gap, maxVox) {
+  const rad = gap / 2, b = M.occPos && M.occPos.length ? bounds(M.rpos) : M.box, ext = [0, 1, 2].map(k => b.hi[k] - b.lo[k] + 2 * (rad + 4));
+  let h = Math.cbrt(ext[0] * ext[1] * ext[2] / maxVox); h = Math.max(h, gap / 12);
+  const lo = [0, 1, 2].map(k => b.lo[k] - rad - 4), nx = Math.ceil(ext[0] / h), ny = Math.ceil(ext[1] / h), nz = Math.ceil(ext[2] / h), N = nx * ny * nz;
+  detail(`Voxel grid ${nx}×${ny}×${nz} at ${h.toFixed(2)} mm`);
+  const solid = new Uint8Array(N), sx = ny * nz, sy = nz, P = M.cpos, I = M.idx;
+  // per closed solid: vertical column hits, fill between pairs
+  const groupTris = new Map();
+  for (let t = 0; t < M.triFace.length; t++) { const g = faceGroup[M.triFace[t]]; if (!groupTris.has(g)) groupTris.set(g, []); groupTris.get(g).push(t); }
+  const jx = 0.001234 * h, jy = 0.003456 * h; let odd = 0, cols = 0, gi = 0;
+  for (const [g, tris] of groupTris) {
+    if (!groups[g]) continue;
+    const keys = [];
+    for (const t of tris) {
+      const a = I[t*3]*3, bb = I[t*3+1]*3, c = I[t*3+2]*3;
+      const ax = P[a], ay = P[a+1], bx = P[bb], by = P[bb+1], cx = P[c], cy = P[c+1];
+      const den = (by - cy) * (ax - cx) + (cx - bx) * (ay - cy); if (Math.abs(den) < 1e-12) continue;
+      const x0 = Math.max(0, Math.ceil((Math.min(ax, bx, cx) - lo[0] - jx) / h - 0.5)), x1 = Math.min(nx - 1, Math.floor((Math.max(ax, bx, cx) - lo[0] - jx) / h - 0.5));
+      const y0 = Math.max(0, Math.ceil((Math.min(ay, by, cy) - lo[1] - jy) / h - 0.5)), y1 = Math.min(ny - 1, Math.floor((Math.max(ay, by, cy) - lo[1] - jy) / h - 0.5));
+      for (let ix = x0; ix <= x1; ix++) { const px = lo[0] + (ix + 0.5) * h + jx;
+        for (let iy = y0; iy <= y1; iy++) { const py = lo[1] + (iy + 0.5) * h + jy;
+          const w0 = ((by - cy) * (px - cx) + (cx - bx) * (py - cy)) / den, w1 = ((cy - ay) * (px - cx) + (ax - cx) * (py - cy)) / den, w2 = 1 - w0 - w1;
+          if (w0 < 0 || w1 < 0 || w2 < 0) continue;
+          const zz = w0 * P[a+2] + w1 * P[bb+2] + w2 * P[c+2] - lo[2];
+          keys.push((ix * ny + iy) * 1e7 + zz);
+        } }
+    }
+    const K = Float64Array.from(keys).sort();
+    let i = 0;
+    while (i < K.length) {
+      const col = Math.floor(K[i] / 1e7); let j = i; while (j < K.length && Math.floor(K[j] / 1e7) === col) j++;
+      cols++;
+      if ((j - i) % 2) odd++;
+      else { const ix = Math.floor(col / ny), iy = col % ny, o = ix * sx + iy * sy;
+        for (let q = i; q < j; q += 2) { const z0 = Math.max(0, Math.ceil((K[q] - col * 1e7) / h - 0.5)), z1 = Math.min(nz - 1, Math.floor((K[q+1] - col * 1e7) / h - 0.5)); for (let z = z0; z <= z1; z++) solid[o + z] = 1; } }
+      i = j;
+    }
+    if (++gi % 10 === 0) detail(`Voxelized ${gi} of ${groupTris.size} solids`);
+  }
+  // mark every vertex and centroid, keeps thin sheets and open surfaces closed
+  const cl = (v, n) => v < 0 ? 0 : v >= n ? n - 1 : v;
+  const mark = (x, y, z) => { const ix = cl(Math.floor((x - lo[0]) / h), nx), iy = cl(Math.floor((y - lo[1]) / h), ny), iz = cl(Math.floor((z - lo[2]) / h), nz); solid[ix*sx + iy*sy + iz] = 1; };
+  for (let v = 0; v < P.length; v += 3) mark(P[v], P[v+1], P[v+2]);
+  for (let t = 0; t < I.length; t += 3) { const a = I[t]*3, bb = I[t+1]*3, c = I[t+2]*3; mark((P[a]+P[bb]+P[c])/3, (P[a+1]+P[bb+1]+P[c+1])/3, (P[a+2]+P[bb+2]+P[c+2])/3); }
+  // covers: dense samples at h/3 spacing, offset ±h/2 along the plate normal, so the plate is a gap-free wall two voxels thick
+  if (M.occIdx) for (let t = 0; t < M.occIdx.length; t += 3) {
+    const O = M.occPos, a = M.occIdx[t]*3, bb = M.occIdx[t+1]*3, c = M.occIdx[t+2]*3;
+    const ux = O[bb]-O[a], uy = O[bb+1]-O[a+1], uz = O[bb+2]-O[a+2], vx = O[c]-O[a], vy = O[c+1]-O[a+1], vz = O[c+2]-O[a+2];
+    let nx_ = uy*vz-uz*vy, ny_ = uz*vx-ux*vz, nz_ = ux*vy-uy*vx; const nl = Math.hypot(nx_, ny_, nz_) || 1; nx_ /= nl; ny_ /= nl; nz_ /= nl;
+    const steps = Math.ceil(Math.max(Math.hypot(ux, uy, uz), Math.hypot(vx, vy, vz)) / (h / 3)) + 1;
+    for (let i = 0; i <= steps; i++) for (let j = 0; j <= steps - i; j++) {
+      const s = i / steps, r = j / steps, x = O[a] + s*ux + r*vx, y = O[a+1] + s*uy + r*vy, z = O[a+2] + s*uz + r*vz;
+      for (const o of [-0.5, 0, 0.5]) mark(x + o*h*nx_, y + o*h*ny_, z + o*h*nz_);
+    }
+  }
+  detail(`Distance field (${(N / 1e6).toFixed(0)}M voxels)`);
+  const F = new Float32Array(N); for (let i = 0; i < N; i++) F[i] = solid[i] ? 0 : 1e20;
+  edt3d(F, nx, ny, nz);
+  const r2 = (rad / h) ** 2;
+  // ball centres may sit where squared distance >= r^2; flood from the border
+  const reach = solid; reach.fill(0);  // reuse memory: 0 unvisited, 1 reachable
+  const Q = new Int32Array(F.buffer);  // reuse the distance buffer as a queue once read
+  const free = i => F[i] >= r2;
+  // first collect border seeds before overwriting F
+  let qh = 0, qt = 0; const seeds = [];
+  for (let x = 0; x < nx; x++) for (let y = 0; y < ny; y++) for (let z = 0; z < nz; z++) {
+    if (x && y && z && x < nx-1 && y < ny-1 && z < nz-1) { z = nz - 2; continue; }
+    const i = x*sx + y*sy + z; if (free(i)) { reach[i] = 2; seeds.push(i); }
+  }
+  // convert F into a compact free-mask in reach (bit 2 = free) so F can become the queue
+  for (let i = 0; i < N; i++) if (F[i] >= r2) reach[i] |= 4;
+  for (const s of seeds) { Q[qt++] = s; reach[s] |= 1; }
+  detail("Flood-filling the outside");
+  while (qh < qt) {
+    const i = Q[qh++], x = Math.floor(i / sx), y = Math.floor((i % sx) / sy), z = i % sy;
+    if (x > 0) { const j = i - sx; if ((reach[j] & 5) === 4) { reach[j] |= 1; Q[qt++] = j; } }
+    if (x < nx-1) { const j = i + sx; if ((reach[j] & 5) === 4) { reach[j] |= 1; Q[qt++] = j; } }
+    if (y > 0) { const j = i - sy; if ((reach[j] & 5) === 4) { reach[j] |= 1; Q[qt++] = j; } }
+    if (y < ny-1) { const j = i + sy; if ((reach[j] & 5) === 4) { reach[j] |= 1; Q[qt++] = j; } }
+    if (z > 0) { const j = i - 1; if ((reach[j] & 5) === 4) { reach[j] |= 1; Q[qt++] = j; } }
+    if (z < nz-1) { const j = i + 1; if ((reach[j] & 5) === 4) { reach[j] |= 1; Q[qt++] = j; } }
+  }
+  detail("Distance to the reachable region");
+  for (let i = 0; i < N; i++) F[i] = (reach[i] & 1) ? 0 : 1e20;
+  edt3d(F, nx, ny, nz);
+  const lim = ((rad + 1.5 * h) / h) ** 2, acc = new Uint8Array(nFaces);
+  const look = (x, y, z) => { const ix = Math.floor((x - lo[0]) / h), iy = Math.floor((y - lo[1]) / h), iz = Math.floor((z - lo[2]) / h); return F[ix*sx + iy*sy + iz] <= lim; };
+  for (let t = 0; t < M.triFace.length; t++) {
+    const f = M.triFace[t]; if (acc[f]) continue;
+    const a = I[t*3]*3, bb = I[t*3+1]*3, c = I[t*3+2]*3;
+    // centroids and vertices: a ball may touch a face only near its edges. Contact faces that pass here are rejected by the ray check.
+    if (look((P[a]+P[bb]+P[c])/3, (P[a+1]+P[bb+1]+P[c+1])/3, (P[a+2]+P[bb+2]+P[c+2])/3) || look(P[a], P[a+1], P[a+2]) || look(P[bb], P[bb+1], P[bb+2]) || look(P[c], P[c+1], P[c+2])) acc[f] = 1;
+  }
+  return { acc, h, odd, cols };
+}
+
+// ---------- 7. write a new XCAF document with only kept faces ----------
+function coverFace(pts) {   // planar polygon (already flattened by the page) -> TopoDS_Face
+  const mp = new oc.BRepBuilderAPI_MakePolygon_1();
+  for (const p of pts) mp.Add_1(new oc.gp_Pnt_3(p[0], p[1], p[2]));
+  mp.Close(); if (!mp.IsDone()) return null;
+  const mf = new oc.BRepBuilderAPI_MakeFace_15(mp.Wire(), true);
+  return mf.IsDone() ? mf.Face() : null;
+}
+function writeOutput(doc, ctx, faces, keep, e, plates) {
+  const ct = oc.XCAFDoc_DocumentTool.ColorTool(doc.get().Main()).get();
+  const ndoc = new oc.Handle_TDocStd_Document_2(new oc.TDocStd_Document(new oc.TCollection_ExtendedString_1()));
+  const nst = oc.XCAFDoc_DocumentTool.ShapeTool(ndoc.get().Main()).get();
+  const nct = oc.XCAFDoc_DocumentTool.ColorTool(ndoc.get().Main()).get();
+  const bld = new oc.BRep_Builder();
+  const setName = (L, n) => { if (n) oc.TDataStd_Name.Set_1(L, new oc.TCollection_ExtendedString_2(n, true)); };
+  const copyColour = (src, dst) => { const c = colourOf(ct, src, e); if (c) nct.SetColor_2(dst, c.c, c.t); };
+  const stats = { parts: 0, dropped: 0 };
+  let instIdx = 0;
+  function part(L) {
+    const inst = ctx.instances[instIdx++];
+    const comp = new oc.TopoDS_Compound(); bld.MakeCompound(comp);
+    const kept = [];
+    for (const p of inst.parts) {
+      const sh = new oc.TopoDS_Shell(); bld.MakeShell(sh); let n = 0;
+      for (const fi of p.faces) if (keep[fi]) { bld.Add(sh, faces[fi].face); kept.push(faces[fi]); n++; }
+      if (n) bld.Add(comp, sh);
+    }
+    if (!kept.length) { stats.dropped++; return null; }
+    const nL = nst.AddShape(comp, false, true);
+    setName(nL, nameOf(L)); copyColour(L, nL);
+    const subs = seq(s => oc.XCAFDoc_ShapeTool.GetSubShapes(L, s)).map(sL => ({ sL, s: oc.XCAFDoc_ShapeTool.GetShape_2(sL) }));
+    if (subs.length) for (const f of kept) for (const { sL, s } of subs) {
+      if (s.IsSame(f.face) || (f.solid && s.IsSame(f.solid))) { const c = colourOf(ct, sL, e); if (c) { const fl = nst.AddSubShape_1(nL, f.face); if (!fl.IsNull()) nct.SetColor_2(fl, c.c, c.t); } break; }
+    }
+    stats.parts++; return nL;
+  }
+  function build(L) {   // same traversal order as collect()
+    if (oc.XCAFDoc_ShapeTool.IsAssembly(L)) {
+      const kids = [];
+      for (const c of seq(s => oc.XCAFDoc_ShapeTool.GetComponents(L, s, false))) {
+        const ref = new oc.TDF_Label(); oc.XCAFDoc_ShapeTool.GetReferredShape(c, ref);
+        const k = build(ref); if (k) kids.push({ c, k });
+      }
+      if (!kids.length) return null;
+      const aL = nst.NewShape(); setName(aL, nameOf(L)); copyColour(L, aL);
+      for (const { c, k } of kids) { const nc = nst.AddComponent_1(aL, k, oc.XCAFDoc_ShapeTool.GetLocation(c)); setName(nc, nameOf(c)); copyColour(c, nc); }
+      return aL;
+    }
+    return part(L);
+  }
+  const tops = ctx.roots.map(build).filter(Boolean);
+  stats.covers = 0;
+  if (plates.length) {
+    const col = new oc.Quantity_Color_3(0.86, 0.55, 0.16, oc.Quantity_TypeOfColor?.Quantity_TOC_sRGB ?? 1);   // sRGB so the amber matches the viewer
+    const host = tops.find(L => oc.XCAFDoc_ShapeTool.IsAssembly(L));   // put covers inside the top assembly when there is one
+    plates.forEach((pts, i) => {
+      const f = coverFace(pts); if (!f) return;
+      const L = nst.AddShape(f, false, true); setName(L, `Cover ${i + 1}`); nct.SetColor_2(L, col, e.SURF);
+      if (host) { const c = nst.AddComponent_1(host, L, new oc.TopLoc_Location_1()); setName(c, `Cover ${i + 1}`); }
+      stats.covers++;
+    });
+  }
+  nst.UpdateAssemblies();
+  const w = new oc.STEPCAFControl_Writer_1(); w.SetColorMode(true); w.SetNameMode(true);
+  if (!w.Perform_2(ndoc, "/out.step", new oc.Message_ProgressRange_1())) throw new Error("Writing the STEP file failed.");
+  const bytes = oc.FS.readFile("/out.step"); oc.FS.unlink("/out.step");
+  return { bytes, stats };
+}
+
+// ---------- main ----------
+// Two commands: "load" reads and meshes the file once and keeps it here; "analyze" runs with the current covers and settings.
+let S = null;
+let cur = "engine"; const T = {};
+const begin = id => { cur = id; T[id] = Date.now(); step(id, "run"); };
+const end = (id, note) => step(id, "done", { secs: (Date.now() - T[id]) / 1000, note });
+
+async function load(bytes) {
+  begin("engine"); await loadEngine(); end("engine");
+  const e = E();
+  begin("read"); await tick(); const doc = readStep(bytes); const ctx = collect(doc); end("read", `${ctx.instances.length} parts`);
+  begin("mesh"); await tick();
+  // mesh size: about 1/10000 of the model diagonal
+  const s0 = oc.XCAFDoc_ShapeTool.GetShape_2(ctx.roots[0]);
+  const bb = new oc.Bnd_Box_1(); oc.BRepBndLib.Add(s0, bb, true);
+  const diag = Math.sqrt(bb.SquareExtent()); const lin = Math.max(diag * 1e-4, 0.005);
+  const M = meshAll(ctx, e, lin);
+  const nFaces = M.faces.length;
+  M.box = bounds(M.pos); const center = [0, 1, 2].map(k => (M.box.lo[k] + M.box.hi[k]) / 2);
+  M.cpos = new Float32Array(M.pos.length); for (let i = 0; i < M.pos.length; i++) M.cpos[i] = M.pos[i] - center[i % 3];
+  M.box = bounds(M.cpos); M.radius = Math.hypot(...M.box.hi.map((v, k) => Math.max(v, -M.box.lo[k])));
+  const faceGroup = Int32Array.from(M.faces, f => f.group);
+  end("mesh", `${nFaces.toLocaleString()} faces`);
+  S = { doc, ctx, M, e, nFaces, faceGroup, center };
+  const pos = M.cpos.slice(), idx = M.idx.slice(), triFace = M.triFace.slice();
+  post({ type: "loaded", pos, idx, triFace, radius: M.radius, half: M.box.hi, faces: nFaces, parts: ctx.instances.length },
+       [pos.buffer, idx.buffer, triFace.buffer]);
+}
+
+// Covers arrive as triangulated plates in model-centred coordinates. They block sight, rays and the gap ball,
+// but are never kept or removed themselves.
+function setCovers(M, covers) {
+  const nv = M.cpos.length / 3; let addV = 0, addT = 0;
+  for (const c of covers) { addV += c.pts.length; addT += c.tris.length; }
+  M.occPos = new Float32Array(addV * 3); M.occIdx = new Uint32Array(addT * 3);
+  M.rpos = new Float32Array(M.cpos.length + addV * 3); M.rpos.set(M.cpos);
+  M.ridx = new Uint32Array(M.idx.length + addT * 3); M.ridx.set(M.idx);
+  let v = 0, t = 0;
+  for (const c of covers) {
+    for (const t3 of c.tris) { for (let k = 0; k < 3; k++) { M.occIdx[t*3+k] = v + t3[k]; M.ridx[M.idx.length + t*3+k] = nv + v + t3[k]; } t++; }
+    for (const p of c.pts) { for (let k = 0; k < 3; k++) { M.occPos[v*3+k] = p[k]; M.rpos[M.cpos.length + v*3+k] = p[k]; } v++; }
+  }
+}
+
+async function analyze({ gap, quality, covers, addCovers }) {
+  if (!S) throw new Error("Open a STEP file first.");
+  const { doc, ctx, M, e, nFaces, faceGroup, center } = S;
+  const Q = { fast:   { views: 160, res: 1536, k: 12, dirs: 256,  vox: 6e7,   test: 48 },
+              normal: { views: 384, res: 2048, k: 24, dirs: 512,  vox: 1.5e8, test: 64 },
+              high:   { views: 768, res: 2048, k: 48, dirs: 1024, vox: 2.4e8, test: 96 } }[quality];
+  setCovers(M, covers);
+  {
+    begin("render"); await tick(); const seen = gpuVisible(M, nFaces, Q.views, Q.res);
+    let nSeen = 0; for (const s of seen) nSeen += s; end("render", `${nSeen.toLocaleString()} seen`);
+
+    let acc = new Uint8Array(nFaces).fill(1), gapInfo = null;
+    if (gap > 0) { begin("gaps"); await tick(); gapInfo = accessible(M, nFaces, faceGroup, ctx.groups, gap, Q.vox); acc = gapInfo.acc; end("gaps"); }
+    else step("gaps", "done", { note: "off" });
+
+    begin("rays"); await tick();
+    const FT = faceTris(M, nFaces), cands = [];
+    for (let f = 0; f < nFaces; f++) if (!seen[f] && acc[f] && FT.start[f + 1] > FT.start[f]) cands.push(f);
+    const rv = await rayVisibleParallel(M, FT, cands, Q.k, Q.dirs, M.radius * 2e-5);
+    let nRay = 0; cands.forEach((f, i) => { if (rv[i]) { seen[f] = 1; nRay++; } });
+    end("rays", `${cands.length.toLocaleString()} checked, ${nRay} more seen`);
+
+    // codes: 1 keep, 2 removed because only visible through a narrow gap, 0 hidden
+    const keep = new Uint8Array(nFaces);
+    for (let f = 0; f < nFaces; f++) keep[f] = seen[f] ? (acc[f] ? 1 : 2) : 0;
+
+    // hole check: render from new directions; restore any hidden-classified face that shows, then measure again
+    begin("check"); await tick();
+    const t1 = gpuVisible(M, nFaces, Q.test, 1024, keep, 7.3);
+    let restored = 0; for (let f = 0; f < nFaces; f++) if (t1.badFaces[f]) { keep[f] = 1; restored++; }
+    const t2 = gpuVisible(M, nFaces, Q.test, 1024, keep, 11.9);
+    end("check", t2.bad ? `${t2.bad} px left` : "no holes");
+    let nKeep = 0, nGap = 0; for (let f = 0; f < nFaces; f++) { if (keep[f] === 1) nKeep++; else if (keep[f] === 2) nGap++; }
+    for (let f = 0; f < nFaces; f++) keep[f] = keep[f] === 1 ? 1 : 0;
+
+    begin("write"); await tick();
+    const plates = addCovers ? covers.map(c => c.outline.map(p => p.map((v, k) => v + center[k]))) : [];
+    const out = writeOutput(doc, ctx, M.faces, keep, e, plates); end("write", plates.length ? `${out.stats.covers} cover plates added` : "");
+
+    post({ type: "done", bytes: out.bytes, keep,
+      summary: { faces: nFaces, keep: nKeep, gapRemoved: nGap, parts: ctx.instances.length, partsKept: out.stats.parts, partsDropped: out.stats.dropped,
+                 voxel: gapInfo && gapInfo.h, oddCols: gapInfo && gapInfo.odd, totCols: gapInfo && gapInfo.cols, covers: covers.length, coverPlates: out.stats.covers,
+                 restored, testViews: Q.test, testPx: t2.model, holePx: t2.bad, gapPx: t2.gapPx, seenGpu: nSeen, seenRay: nRay, rayCands: cands.length } },
+      [out.bytes.buffer, keep.buffer]);
+  }
+}
+
+self.onmessage = async ev => {
+  try {
+    if (ev.data.cmd === "load") await load(ev.data.bytes);
+    else await analyze(ev.data);
+  } catch (err) {
+    step(cur, "fail"); post({ type: "error", message: (err && err.message) || String(err) + " (engine error)" });
+  }
+};
+</script>
+
+<!-- ============================ Page ============================ -->
+<script type="importmap">{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js","three/addons/":"https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+const $ = id => document.getElementById(id);
+const LOAD_STEPS = [["engine", "Load CAD engine"], ["read", "Read STEP file"], ["mesh", "Mesh faces"]];
+const RUN_STEPS = [["render", "Find visible faces"], ["gaps", "Close narrow gaps"], ["rays", "Check small and hidden faces"],
+                   ["check", "Check for holes"], ["write", "Write new STEP file"]];
+const MARGIN = 1.0;   // mm: plates are grown this much past the clicked rim so they overlap it
+let file = null, outBlob = null, outName = "", worker = null, loaded = null, busy = false, resultCovers = null;
+const covers = [];    // {raw: Vector3[], plate: [[x,y,z]], tris: [[a,b,c]], size: [w,h], obj: Group}
+let drawing = null;   // {pts: Vector3[], obj: Group}
+
+// ---------- file input: opening a file loads and meshes it right away ----------
+function setFile(f) {
+  if (!f || busy) return; file = f; $("fileName").textContent = `${f.name} · ${(f.size / 1048576).toFixed(1)} MB`; startLoad();
+}
+$("file").onchange = e => setFile(e.target.files[0]);
+const drop = $("drop");
+drop.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("file").click(); } });
+["dragenter", "dragover"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", e => setFile(e.dataTransfer.files[0]));
+
+function stepRows(list) { return list.map(([id, t]) => `<li id="s-${id}"><span>${t}</span><span class="t"></span></li>`).join(""); }
+function startWorker() {
+  worker?.terminate();
+  try { worker = new Worker(URL.createObjectURL(new Blob([$("worker-src").textContent], { type: "text/javascript" }))); }
+  catch (err) { handle({ type: "error", message: `This browser would not start the background worker (${err.message}). Open the page from a local web server instead.` }); return false; }
+  worker.onmessage = ev => handle(ev.data);
+  worker.onerror = ev => { ev.preventDefault?.(); handle({ type: "error", message: `The background worker stopped: ${ev.message || "no details from the browser"}${ev.lineno ? ` (line ${ev.lineno})` : ""}.` }); };
+  return true;
+}
+async function startLoad() {
+  busy = true; loaded = null; outBlob = null; clearCovers(); cancelDrawing(); clearModel();
+  $("steps").innerHTML = stepRows(LOAD_STEPS); $("progress").hidden = false; $("error").hidden = true; $("result").hidden = true;
+  $("run").disabled = true; $("draw").disabled = true; $("coverSec").classList.remove("ready");
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (!startWorker()) return;
+  worker.postMessage({ cmd: "load", bytes }, [bytes.buffer]);
+}
+$("run").onclick = () => {
+  if (!loaded || busy) return;
+  if (drawing) finishDrawing();
+  busy = true; $("run").disabled = true; $("draw").disabled = true;
+  document.querySelectorAll(RUN_STEPS.map(s => "#s-" + s[0]).join(",")).forEach(li => li.remove());
+  $("steps").insertAdjacentHTML("beforeend", stepRows(RUN_STEPS)); $("error").hidden = true; $("result").hidden = true;
+  resultCovers = covers.map(c => c.id).join(",");
+  worker.postMessage({ cmd: "analyze", gap: +$("gap").value, quality: $("quality").value, addCovers: $("addCovers").checked,
+    covers: covers.map(c => ({ pts: c.plate, tris: c.tris, outline: c.plate })) });
+};
+
+function handle(m) {
+  if (m.type === "step") {
+    const li = $("s-" + m.id); if (!li) return;
+    li.className = m.state; const t = li.querySelector(".t");
+    if (m.state === "done") t.textContent = [m.note, m.secs != null ? `${m.secs.toFixed(1)} s` : ""].filter(Boolean).join(" · ");
+    const hints = { engine: "Downloading the CAD engine (about 48 MB, only on the first run)", read: "Reading the STEP file. Large assemblies can take a minute.", write: "Building the new assembly and writing STEP" };
+    if (m.state === "run") $("detail").textContent = hints[m.id] || "";
+  } else if (m.type === "detail") $("detail").textContent = m.text;
+  else if (m.type === "error") {
+    busy = false; $("error").hidden = false; $("error").textContent = m.message; $("detail").textContent = "";
+    $("run").disabled = !loaded; $("draw").disabled = !loaded;
+  } else if (m.type === "loaded") {
+    busy = false; loaded = m; $("detail").textContent = "";
+    $("run").disabled = false; $("draw").disabled = false; $("coverSec").classList.add("ready");
+    showLoaded(m);
+  } else if (m.type === "done") {
+    busy = false; $("detail").textContent = ""; $("run").disabled = false; $("draw").disabled = false;
+    const s = m.summary;
+    outBlob = new Blob([m.bytes], { type: "application/step" });
+    outName = file.name.replace(/\.(step|stp)$/i, "") + " - outer skin.STEP";
+    const row = (a, b, c) => `<span>${a}</span><span class="n">${b}</span><span class="n">${c}</span>`;
+    const note = (txt, colour) => `<span style="grid-column:1/-1;font-size:12px;margin-top:6px;color:${colour}">${txt}</span>`;
+    $("stats").innerHTML = `<span class="h"></span><span class="h n">Before</span><span class="h n">After</span>` +
+      row("Faces", s.faces.toLocaleString(), s.keep.toLocaleString()) +
+      row("Parts", s.parts.toLocaleString(), s.partsKept.toLocaleString()) +
+      row("File size", (file.size / 1048576).toFixed(1) + " MB", (outBlob.size / 1048576).toFixed(1) + " MB") +
+      note(`Hole check from ${s.testViews} new viewpoints: ${s.holePx ? `${s.holePx.toLocaleString()} of ${s.testPx.toLocaleString()} pixels (${(100 * s.holePx / s.testPx).toFixed(4)}%) land on a removed face.` : "no pixel lands on a removed face."}${s.restored ? ` ${s.restored} missed faces were put back.` : ""}`, s.holePx ? "var(--warn)" : "var(--ok)") +
+      (s.covers ? note(`${s.covers} cover${s.covers > 1 ? "s" : ""} used${s.coverPlates ? `, ${s.coverPlates} added to the STEP file as plates` : ", not added to the STEP file"}.`, "var(--muted)") : "") +
+      (s.voxel ? note(`${s.gapRemoved.toLocaleString()} faces were removed because they can only be seen through gaps narrower than ${$("gap").value} mm (gap grid ${s.voxel.toFixed(2)} mm).`, "var(--muted)") : "");
+    $("result").hidden = false; $("stale").hidden = true;
+    showResult(m.keep);
+  }
+}
+$("download").onclick = () => {
+  if (!outBlob) return;
+  const a = document.createElement("a"); a.href = URL.createObjectURL(outBlob); a.download = outName; document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+};
+
+// ---------- viewer ----------
+const canvas = $("gl");
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: true }); renderer.setPixelRatio(devicePixelRatio); renderer.localClippingEnabled = true;
+const scene = new THREE.Scene(), cam = new THREE.PerspectiveCamera(35, 1, 1, 10000); cam.up.set(0, 0, 1);
+const ctl = new OrbitControls(cam, canvas); ctl.enableDamping = true;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x667080, 1.6)); const dl = new THREE.DirectionalLight(0xffffff, 1.5); dl.position.set(1, 1, 2); cam.add(dl); scene.add(cam);
+const plane = new THREE.Plane(new THREE.Vector3(0, -1, 0), 0);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const coverRoot = new THREE.Group(); scene.add(coverRoot);
+let mk = null, mr = null, attr = null, half = [1, 1, 1], R = 1, mode = "before", analysed = false;
+function mat(c) { return new THREE.MeshStandardMaterial({ color: c, side: THREE.DoubleSide, roughness: .6, metalness: .1, clippingPlanes: [plane], polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 }); }
+function geo(idx) { const g = new THREE.BufferGeometry(); g.setAttribute("position", attr); g.setIndex(new THREE.BufferAttribute(idx, 1)); g.computeVertexNormals(); g.computeBoundingSphere(); return g; }
+function clearModel() { for (const x of [mk, mr]) if (x) { scene.remove(x); x.geometry.dispose(); } mk = mr = null; analysed = false; }
+function showLoaded(m) {
+  clearModel();
+  attr = new THREE.BufferAttribute(m.pos, 3);
+  mk = new THREE.Mesh(geo(m.idx), mat(css("--kept-before"))); mr = new THREE.Mesh(geo(new Uint32Array(0)), mat(css("--removed")));
+  scene.add(mk, mr); half = m.half; R = m.radius;
+  cam.near = R / 100; cam.far = R * 20; cam.position.set(R * 2.2, -R * 2.2, R * 1.2); ctl.target.set(0, 0, 0); cam.updateProjectionMatrix();
+  $("empty").hidden = true; $("toolbar").hidden = false; $("legend").hidden = false; $("mode").hidden = true;
+  mode = "before"; $("cutPos").value = 1000; applyMode(); cut();
+}
+function showResult(keep) {
+  const kept = [], removed = [], idx = loaded.idx, tf = loaded.triFace;
+  for (let t = 0; t < tf.length; t++) (keep[tf[t]] ? kept : removed).push(idx[t*3], idx[t*3+1], idx[t*3+2]);
+  for (const x of [mk, mr]) { scene.remove(x); x.geometry.dispose(); }
+  mk = new THREE.Mesh(geo(new Uint32Array(kept)), mat(css("--kept"))); mr = new THREE.Mesh(geo(new Uint32Array(removed)), mat(css("--removed")));
+  scene.add(mk, mr); analysed = true; $("mode").hidden = false;
+  mode = "before"; $("cutPos").value = 500; applyMode(); cut();
+}
+function applyMode() {
+  if (!mk) return;
+  const m = analysed ? mode : "before";
+  mk.visible = m !== "removed"; mr.visible = m !== "after";
+  mk.material.color.set(css(m === "before" ? "--kept-before" : "--kept"));
+  document.querySelectorAll("#mode button").forEach(b => b.classList.toggle("on", b.dataset.m === mode));
+  document.querySelectorAll(".after-only").forEach(el => el.hidden = !analysed);
+  $("lgModel").textContent = analysed ? "kept (Before view)" : "model";
+  coverRoot.children.forEach(o => o.material && (o.material.color.set(css("--cover"))));
+}
+function cut() {
+  const a = +$("axis").value, f = $("flip").checked ? -1 : 1, t = +$("cutPos").value / 1000, h = half[a] * 1.001;
+  const n = new THREE.Vector3(); n.setComponent(a, -f); plane.normal.copy(n); plane.constant = -h + 2 * h * t;
+}
+document.querySelectorAll("#mode button").forEach(b => b.onclick = () => { mode = b.dataset.m; applyMode(); });
+["axis", "flip", "cutPos"].forEach(id => $(id).oninput = cut);
+$("showCovers").oninput = () => { coverRoot.visible = $("showCovers").checked; };
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyMode);
+function size() { const r = $("view").getBoundingClientRect(); renderer.setSize(r.width, r.height, false); cam.aspect = r.width / Math.max(r.height, 1); cam.updateProjectionMatrix(); }
+new ResizeObserver(size).observe($("view")); size();
+renderer.setAnimationLoop(() => { scene.background = new THREE.Color(css("--view")); ctl.update(); renderer.render(scene, cam); });
+
+// ---------- covers: geometry ----------
+// Flatten the clicked rim points onto their best-fit plane, grow them outward by MARGIN, and triangulate.
+function makePlate(raw) {
+  const c = new THREE.Vector3(); raw.forEach(p => c.add(p)); c.divideScalar(raw.length);
+  const n = new THREE.Vector3();   // Newell normal
+  for (let i = 0; i < raw.length; i++) { const a = raw[i], b = raw[(i + 1) % raw.length];
+    n.x += (a.y - b.y) * (a.z + b.z); n.y += (a.z - b.z) * (a.x + b.x); n.z += (a.x - b.x) * (a.y + b.y); }
+  if (n.lengthSq() < 1e-12) return null; n.normalize();
+  const u = new THREE.Vector3().subVectors(raw[0], c); u.addScaledVector(n, -u.dot(n));
+  if (u.lengthSq() < 1e-12) u.set(1, 0, 0).cross(n); u.normalize(); const v = new THREE.Vector3().crossVectors(n, u);
+  const flat = raw.map(p => { const d = new THREE.Vector3().subVectors(p, c); return new THREE.Vector2(d.dot(u), d.dot(v)); });
+  const grown = flat.map(q => { const l = q.length(); return l > 1e-9 ? q.clone().multiplyScalar((l + MARGIN) / l) : q.clone(); });
+  const tris = THREE.ShapeUtils.triangulateShape(grown, []);
+  if (!tris.length) return null;
+  const plate = grown.map(q => c.clone().addScaledVector(u, q.x).addScaledVector(v, q.y));
+  const xs = grown.map(q => q.x), ys = grown.map(q => q.y);
+  return { plate: plate.map(p => [p.x, p.y, p.z]), tris, size: [Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys)], plateV: plate };
+}
+function coverObject(plateV, tris) {
+  const g = new THREE.Group();
+  const pos = new Float32Array(plateV.length * 3); plateV.forEach((p, i) => p.toArray(pos, i * 3));
+  const mg = new THREE.BufferGeometry(); mg.setAttribute("position", new THREE.BufferAttribute(pos, 3)); mg.setIndex(tris.flat()); mg.computeVertexNormals();
+  const mesh = new THREE.Mesh(mg, new THREE.MeshBasicMaterial({ color: css("--cover"), transparent: true, opacity: .55, side: THREE.DoubleSide, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8 }));
+  const lg = new THREE.BufferGeometry().setFromPoints(plateV);
+  g.add(mesh, new THREE.LineLoop(lg, new THREE.LineBasicMaterial({ color: css("--cover") })));
+  return g;
+}
+let coverSeq = 0;
+function addCover(raw) {
+  const p = makePlate(raw); if (!p) return false;
+  const c = { id: ++coverSeq, raw, ...p, obj: coverObject(p.plateV, p.tris) };
+  covers.push(c); coverRoot.add(c.obj); renderCovers(); return true;
+}
+function removeCover(id) { const i = covers.findIndex(c => c.id === id); if (i < 0) return; coverRoot.remove(covers[i].obj); covers.splice(i, 1); renderCovers(); }
+function clearCovers() { covers.splice(0).forEach(c => coverRoot.remove(c.obj)); renderCovers(); }
+function renderCovers() {
+  $("coverList").innerHTML = covers.map((c, i) => `<li><i></i><span>Cover ${i + 1} <small>${c.raw.length} pts · ${c.size[0].toFixed(0)} × ${c.size[1].toFixed(0)} mm</small></span><button data-id="${c.id}" aria-label="Delete cover ${i + 1}">Delete</button></li>`).join("");
+  $("coverList").querySelectorAll("button").forEach(b => b.onclick = () => removeCover(+b.dataset.id));
+  $("stale").hidden = !outBlob || resultCovers === covers.map(c => c.id).join(",");
+}
+
+// ---------- covers: drawing ----------
+const ray = new THREE.Raycaster(), ndc = new THREE.Vector2();
+function startDrawing() {
+  if (!loaded || busy) return;
+  drawing = { pts: [], obj: new THREE.Group() }; scene.add(drawing.obj);
+  $("view").classList.add("drawing"); $("draw").textContent = "Finish cover"; $("cancelDraw").hidden = false; updateDrawing();
+}
+function updateDrawing() {
+  if (!drawing) { $("drawHint").textContent = ""; return; }
+  drawing.obj.clear();
+  const r = R * 0.006;
+  for (const p of drawing.pts) { const s = new THREE.Mesh(new THREE.SphereGeometry(r, 12, 8), new THREE.MeshBasicMaterial({ color: css("--cover"), depthTest: false })); s.position.copy(p); s.renderOrder = 10; drawing.obj.add(s); }
+  if (drawing.pts.length > 1) { const l = new THREE.Line(new THREE.BufferGeometry().setFromPoints([...drawing.pts, drawing.pts[0]]), new THREE.LineBasicMaterial({ color: css("--cover"), depthTest: false })); l.renderOrder = 10; drawing.obj.add(l); }
+  const n = drawing.pts.length;
+  $("drawHint").textContent = n < 3 ? `Click points around the opening (${n} of at least 3). Backspace removes the last point, Esc cancels.` : `${n} points. Keep clicking, or double-click / press Enter to finish.`;
+}
+function finishDrawing() {
+  if (!drawing) return;
+  const pts = drawing.pts; cancelDrawing();
+  if (pts.length >= 3 && !addCover(pts)) $("drawHint").textContent = "Those points don't form a cover: they lie on one line. Try again with points around the opening.";
+}
+function cancelDrawing() {
+  if (drawing) { scene.remove(drawing.obj); drawing = null; }
+  $("view").classList.remove("drawing"); $("draw").textContent = "Draw cover"; $("cancelDraw").hidden = true; updateDrawing();
+}
+$("draw").onclick = () => drawing ? finishDrawing() : startDrawing();
+$("cancelDraw").onclick = cancelDrawing;
+function pick(ev) {
+  const r = canvas.getBoundingClientRect();
+  ndc.set(((ev.clientX - r.left) / r.width) * 2 - 1, -((ev.clientY - r.top) / r.height) * 2 + 1);
+  ray.setFromCamera(ndc, cam);
+  const hits = ray.intersectObjects([mk, mr].filter(o => o && o.visible), false);
+  return hits.find(h => plane.distanceToPoint(h.point) >= 0)?.point || null;   // skip what the section cut hides
+}
+let down = null;
+canvas.addEventListener("pointerdown", e => { down = { x: e.clientX, y: e.clientY }; });
+canvas.addEventListener("pointerup", e => {
+  if (!drawing || e.button !== 0 || !down || Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return;
+  const p = pick(e); if (!p) return;
+  const last = drawing.pts[drawing.pts.length - 1];
+  if (last && last.distanceTo(p) < R * 1e-4) return;   // second click of a double-click
+  drawing.pts.push(p.clone()); updateDrawing();
+});
+canvas.addEventListener("dblclick", () => { if (drawing && drawing.pts.length >= 3) finishDrawing(); });
+addEventListener("keydown", e => {
+  if (!drawing || e.target.closest("input, select, textarea")) return;
+  if (e.key === "Enter") { e.preventDefault(); finishDrawing(); }
+  else if (e.key === "Escape") { e.preventDefault(); cancelDrawing(); }
+  else if (e.key === "Backspace") { e.preventDefault(); drawing.pts.pop(); updateDrawing(); }
+});
+
+// developer hook for automated testing: ?test=<same-origin path>
+const tp = new URLSearchParams(location.search).get("test");
+if (tp && location.protocol.startsWith("http")) fetch(tp).then(r => r.blob()).then(b => setFile(new File([b], tp.split("/").pop())));
+window.__outerSkin = {
+  get blob() { return outBlob; }, get loaded() { return !!loaded; }, get busy() { return busy; }, get covers() { return covers.length; },
+  addCover: pts => addCover(pts.map(p => new THREE.Vector3(...p))), pick: (x, y) => pick({ clientX: x, clientY: y }),
+};
+</script>
+</body>
+</html>

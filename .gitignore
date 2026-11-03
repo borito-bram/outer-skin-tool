@@ -1,0 +1,5 @@
+# Never commit CAD models: they are usually confidential
+*.step
+*.STEP
+*.stp
+*.STP
